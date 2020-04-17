@@ -1,0 +1,1370 @@
+---
+title: "H3P1"
+author: "Guanzhi Wang"
+date: "4/8/2020"
+output: pdf_document
+---
+Collaborate with Shaoyu Feng
+
+```{r}
+####################################################
+# Class: Anly-601
+# Script: Starter code for creating boosted models
+# Author: Joshuah Touyz
+# Version: 0.1
+# Last updated: 03/19/20
+####################################################
+
+####################################
+##### Loading libraries & data #####
+####################################
+library(tidyverse)
+library(splines)
+
+# Generating sample data
+n=300
+set.seed(1)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+
+
+# Setting up parameters
+v=.05 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+polynomial_degree = 2
+
+# Fit round 1
+fit=lm(y~bs(x,degree=2,df=6),data=df)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp
+list_of_weak_learners = list(fit)
+
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = lm(yr ~ bs(x, 
+                   degree=polynomial_degree,
+                   df=number_of_knots_split),data=df) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+
+
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  theme_minimal()
+
+
+##################################
+##### Predicting on new data #####
+##################################
+
+new_data = tibble(x = sample(seq(0,4*3,0.001),size = 100,replace = T))
+
+for (i in 1:number_of_weak_learners){
+  weak_learner_i = list_of_weak_learners[[i]]
+  
+  if (i==1){pred = v*predict(weak_learner_i,new_data)}
+  else{pred =pred + v*predict(weak_learner_i,new_data)}
+  
+  if(i==number_of_weak_learners){
+    new_data = new_data %>% bind_cols(yp=pred)
+  }
+}
+
+###################################################
+##### Visualizing boosted vs predicted models #####
+##################################################
+ggplot(aes(x=x, y=y),data = tibble(x = df$x, y = df$y))+
+  xlab('')+ylab('')+ 
+  geom_point()+
+  # Final learner from training data
+  geom_line(aes(x = x, y = value, group = learner, color =learner), data = final_learner , color = 'firebrick1',size = 2)  +
+  # True value
+  geom_line(aes(x=x,y=y),data = tibble(x = u,y = sin(u)), color='black',linetype = 'dashed')+ # true values
+  # Prediction on new data
+  geom_line(aes(x=x,y=yp),data = new_data, color='blue',size = 2,alpha = 0.5)+ # predicted values
+  theme_minimal()
+
+```
+
+# Question 1
+
+## Q0
+
+```{r}
+
+library(tidyverse)
+library(splines)
+library(rpart)
+n=300
+set.seed(100)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+# Setting up parameters
+v=.05 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(yr~x,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  theme_minimal()
+```
+
+## Q1
+
+```{r}
+n=300
+set.seed(100)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+# Setting up parameters
+v=.01 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(yr~x,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  theme_minimal()
+```
+
+```{r}
+n=300
+set.seed(100)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+# Setting up parameters
+v=.05
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(yr~x,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  theme_minimal()
+```
+
+```{r}
+n=300
+set.seed(100)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+# Setting up parameters
+v=.125
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(yr~x,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  theme_minimal()
+```
+
+# Q2: Using a validation and test set
+
+### A
+```{r}
+n=300
+set.seed(100)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+## split vlidation and test set
+### Random sample indexes
+validation_index <- sample(1:nrow(df), 0.75 * nrow(df))
+test_index <- setdiff(1:nrow(df), validation_index)
+validation_df = df[validation_index,]
+test_df = df[test_index,]
+# Setting up parameters
+v=.05 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=validation_df,parms = v)
+yp = predict(fit,newdata=validation_df)
+validation_df$yr = validation_df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  
+  if((max(v*yp)) < .0001){
+    break
+  }
+  
+  # Fit linear spline
+  fit = rpart(yr~x,data=validation_df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=validation_df)
+  
+  # Update residuals
+  validation_df$yr=validation_df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+  
+  
+  
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:dim(YP)[2]){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  validation_df = validation_df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = validation_df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (dim(YP)[2]-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = validation_df)+ # true values
+  theme_minimal()
+```
+
+### B
+Since the learning iteration stops at 60, we have 60 trees.
+
+### C
+```{r}
+v=.05 
+number_of_weak_learners = 60
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(y~x,data=test_df,parms = v)
+yp = predict(fit,newdata=test_df)
+test_df$yr = test_df$y - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+#################################
+##### Boosting with Splines #####
+#################################
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(yr~x,data=test_df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=test_df)
+  
+  # Update residuals
+  test_df$yr=test_df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  test_df = test_df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = test_df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = test_df)+ # true values
+  theme_minimal()
+```
+  
+ 
+```{r}
+RMSE = function(m, o){
+  sqrt(mean((m - o)^2))
+}
+RMSE(final_learner$value,test_df$y)
+```
+
+
+The RMSE is about 0.216.
+
+
+## Q3
+
+```{r}
+
+# Generating sample data
+n=500
+set.seed(1)
+u=sort(runif(n)*5*pi)
+y = sin(u)+rnorm(n)/4
+df = data.frame(x=u,y=y)
+
+# Validation And Testing Data
+test_idx=sample(seq_len(n), size =50)
+test <- df[test_idx, ]
+remain <- df[-test_idx,]
+df<-remain
+row.names(df) <- NULL
+valid_idx=sample(seq_len(450), size =50)
+valid<-df[valid_idx,]
+remain<-df[-valid_idx,]
+df<-remain
+row.names(df) <- NULL
+
+# Define a named list of parameter values
+gs <- list(minsplit = c(2, 5, 10), cp=c(0.005,0.01,0.15),
+           maxdepth = c(2, 3, 5)) %>% cross_df() # Convert to data frame grid
+
+model_fit<-function(...)
+{
+# Setting up parameters
+v=.05
+stop=FALSE
+t=2
+# Fit round 1
+fit=rpart(y~x,data=df,control = rpart.control(...))
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp
+list_of_weak_learners = list(fit)
+y_valid_p=v*predict(fit,newdata=valid)
+y_rmse_valid=sqrt(mean(abs(valid$y-y_valid_p)**2))
+#################################
+##### Boosting with trees #####
+#################################
+while (!stop)
+{
+  # Fit linear spline
+  fit = rpart(yr ~ x,data=df,control = rpart.control(...))
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+  # Update residuals
+  df$yr=df$yr - v*yp
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  # Test on Validation Dataset
+  y_valid_p=y_valid_p+v*predict(fit,newdata=valid)
+  y_rmse_valid_new=sqrt(mean(abs(valid$y-y_valid_p)**2))
+  change=abs(y_rmse_valid_new-y_rmse_valid)
+  y_rmse_valid=y_rmse_valid_new
+  print(change)
+  if (change<0.005)
+  {
+    stop=TRUE
+  }
+  else{
+    t=t+1
+  }
+}
+return(y_rmse_valid)
+}
+fit = pmap(gs, model_fit)
+gs <- gs %>% mutate(fit)
+gs[which.min(gs$fit),]
+```
+
+In this case, the best tree's minsplit is 2, maxdepth is 5 and the RMSE of the this tree is 0.13.
+
+## P2
+
+   
+```{r}
+library(scatterplot3d)
+df <- read.csv('kernel_regression_2.csv')
+# Setting up parameters
+v=.01 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(z~.,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$z - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(z~.,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-z,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# put x y, z, z_predict in one dataframe and make 3D plot
+myplot_df1 <- data.frame(x=df$x,y=df$y,z=df$z,group='actual')
+myplot_df2 <- data.frame(x=df$x,y=df$y,z=final_learner$value,group='predict')
+myplot_df <- rbind(myplot_df1,myplot_df2)
+cols <- c("red", "green")
+with(myplot_df, 
+     scatterplot3d(x,
+                   y, 
+                   z, 
+                   main="3V=0.125",
+                   xlab = "x",
+                   ylab = "y",
+                   zlab = "z",
+                   pch = 16, color=cols[as.numeric(myplot_df$group)]))
+legend(5,5,2,legend = levels(myplot_df$group),
+      col =  c("red", "green"), pch = 15)
+```
+
+ 
+```{r}
+df <- read.csv('kernel_regression_2.csv')
+# Setting up parameters
+v=.05 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(z~.,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$z - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(z~.,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-z,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# put x y, z, z_predict in one dataframe and make 3D plot
+myplot_df1 <- data.frame(x=df$x,y=df$y,z=df$z,group='actual')
+myplot_df2 <- data.frame(x=df$x,y=df$y,z=final_learner$value,group='predict')
+myplot_df <- rbind(myplot_df1,myplot_df2)
+cols <- c("red", "green")
+with(myplot_df, 
+     scatterplot3d(x,
+                   y, 
+                   z, 
+                   main="3V=0.125",
+                   xlab = "x",
+                   ylab = "y",
+                   zlab = "z",
+                   pch = 16, color=cols[as.numeric(myplot_df$group)]))
+legend(5,5,2,legend = levels(myplot_df$group),
+      col =  c("red", "green"), pch = 15)
+```
+
+  
+   
+```{r}
+df <- read.csv('kernel_regression_2.csv')
+# Setting up parameters
+v=.125 
+number_of_weak_learners = 100
+number_of_knots_split = 6
+#polynomial_degree = 2
+# Fit round 1
+fit=rpart(z~.,data=df,parms = v)
+yp = predict(fit,newdata=df)
+df$yr = df$z - v*yp
+YP = v*yp ###########
+list_of_weak_learners = list(fit)
+
+for(t in 2:number_of_weak_learners){
+  # Fit linear spline
+  fit = rpart(z~.,data=df,parms = v) 
+  
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  
+  # Update residuals
+  df$yr=df$yr - v*yp
+  
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+}
+
+for (i in 1:number_of_weak_learners){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-z,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (number_of_weak_learners-1))
+# put x y, z, z_predict in one dataframe and make 3D plot
+myplot_df1 <- data.frame(x=df$x,y=df$y,z=df$z,group='actual')
+myplot_df2 <- data.frame(x=df$x,y=df$y,z=final_learner$value,group='predict')
+myplot_df <- rbind(myplot_df1,myplot_df2)
+cols <- c("red", "green")
+with(myplot_df, 
+     scatterplot3d(x,
+                   y, 
+                   z, 
+                   main="3V=0.125",
+                   xlab = "x",
+                   ylab = "y",
+                   zlab = "z",
+                   pch = 16, color=cols[as.numeric(myplot_df$group)]))
+legend(5,5,2,legend = levels(myplot_df$group),
+      col =  c("red", "green"), pch = 15)
+```
+
+```{r}
+df <- read.csv('kernel_regression_2.csv')
+
+
+valid_idx=sample(1:nrow(df), 0.75 * nrow(df))
+valid<-df[valid_idx,]
+remain<-df[-valid_idx,]
+df<-remain
+row.names(df) <- NULL
+
+v=.05 
+
+
+
+
+
+
+test_idx=setdiff(1:nrow(df), validation_index)
+test <- df[test_idx, ]
+remain <- df[-test_idx,]
+df<-remain
+row.names(df) <- NULL
+
+
+
+
+
+# Setting up parameters
+
+stop=FALSE
+t=2
+
+# Fit round 1
+fit=rpart(y~x,data=df)
+yp = predict(fit,newdata=df)
+df$yr = df$y - v*yp
+YP = v*yp
+list_of_weak_learners = list(fit)
+y_valid_p=v*predict(fit,newdata=valid)
+y_rmse_valid=sqrt(mean(abs(valid$y-y_valid_p)**2))
+
+
+#################################
+##### Boosting with trees #####
+#################################
+while (!stop)
+{
+  # Fit linear spline
+  fit = rpart(yr ~ x,data=df)
+  # Generate new prediction
+  yp=predict(fit,newdata=df)
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+  # Update residuals
+  df$yr=df$yr - v*yp
+  # Bind to new data point
+  YP = cbind(YP,v*yp)
+  # Test on Validation Dataset
+  y_valid_p=y_valid_p+v*predict(fit,newdata=valid)
+  y_rmse_valid_new=sqrt(mean(abs(valid$y-y_valid_p)**2))
+  change=abs(y_rmse_valid_new-y_rmse_valid)
+  y_rmse_valid=y_rmse_valid_new
+  print(change)
+  if (change<0.005)
+  {
+    stop=TRUE
+  }
+  else{
+    t=t+1
+  }
+}
+
+##############################################
+##### Getting predictions for each boost #####
+##############################################
+for (i in 1:t){
+  # Calculating performance of first i weak_learners
+  
+  # Summing weak learner residuals
+  if(i==1){yp_i = YP[,1:i]
+  }else{yp_i=apply(YP[,1:i],1,sum) #<- strong learner
+  }
+  
+  # Binds new cols
+  col_name = paste0('yp_',i)
+  df = df %>% bind_cols(yp=yp_i)
+}
+
+# Re-arrange sequences to get pseudo residuals 
+plot_wl = df %>% select(-y,-yr) %>% 
+  pivot_longer(cols = starts_with("yp")) %>% 
+  mutate(learner = str_match(name,"[0-9]+")) %>% 
+  mutate(learner = as.integer(ifelse(is.na(learner),0,learner)))
+
+# Plot final learner
+final_learner = plot_wl %>% filter(learner == (t-1))
+
+# Plot progression of learner
+ggplot() + 
+  # Visualizing all learners
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = plot_wl,alpha=0.5) +
+  # Final learner
+  geom_line(aes(x = x, y = value, group = learner, color =learner),
+            data = final_learner,alpha=0.5,color = 'firebrick1',size = 2)  +
+  geom_point(aes(x = x, y= y),data = df)+ # true values
+  ggtitle('v=0.05')+
+  theme_minimal()
+
+##################################
+##### Predicting on test data #####
+##################################
+for (i in 1:t){
+  weak_learner_i = list_of_weak_learners[[i]]
+  
+  if (i==1){pred = v*predict(weak_learner_i,test)}
+  else{pred =pred + v*predict(weak_learner_i,test)}
+  
+  if(i==t){
+    test = test %>% bind_cols(yp=pred)
+  }
+}
+y_rmse_test=sqrt(mean(abs(test$y-test$yp)**2))
+
+
+
+
+```
+
+There is only 1 tree with RMSE 0.001350553.
+
+```{r}
+# Define a named list of parameter values
+df <- read.csv('kernel_regression_2.csv')
+
+
+valid_idx=sample(1:nrow(df), 0.75 * nrow(df))
+valid<-df[valid_idx,]
+remain<-df[-valid_idx,]
+df<-remain
+row.names(df) <- NULL
+
+
+test_idx=setdiff(1:nrow(df), validation_index)
+test <- df[test_idx, ]
+remain <- df[-test_idx,]
+df<-remain
+row.names(df) <- NULL
+
+
+gs <- list(minsplit = c(2, 5, 10), cp=c(0.005,0.01,0.15),
+           maxdepth = c(2, 3, 5)) %>% cross_df() # Convert to data frame grid
+
+model_fit<-function(...){
+# Setting up parameters
+v=.05
+stop=FALSE
+t=2
+# Fit round 1
+fit=rpart(z~.,data=df)
+zp = predict(fit,newdata=df,control = rpart.control(...))
+df$zr = df$z - v*zp
+ZP = v*zp
+list_of_weak_learners = list(fit)
+
+z_valid_p=v*predict(fit,newdata=valid)
+z_rmse_valid=sqrt(mean(abs(valid$z-z_valid_p)**2))
+
+#################################
+##### Boosting with trees #####
+#################################
+while (!stop)
+{
+  # Fit linear spline
+  fit = rpart(zr ~ .,data=df,control = rpart.control(...))
+  # Generate new prediction
+  zp=predict(fit,newdata=df)
+  # Store fitted model in list
+  list_of_weak_learners[[t]] = fit
+  # Update residuals
+  df$zr=df$zr - v*zp
+  # Bind to new data point
+  ZP = cbind(ZP,v*zp)
+  # Test on Validation Dataset
+  z_valid_p=z_valid_p+v*predict(fit,newdata=valid)
+  z_rmse_valid_new=sqrt(mean(abs(valid$z-z_valid_p)**2))
+  change=abs(z_rmse_valid_new-z_rmse_valid)
+  z_rmse_valid=z_rmse_valid_new
+  print(change)
+  if (change<0.005)
+  {
+    stop=TRUE
+  }
+  else{
+    t=t+1
+  }
+}
+return (z_rmse_valid)
+}
+
+fit = pmap(gs, model_fit)
+gs <- gs %>% mutate(fit)
+gs[which.min(gs$fit),]
+```
+In this case, the best tree's minsplit is 2, maxdepth is 5 and the RMSE of the this tree is 0.04.
+
+# Question 2
+
+## part 1
+### a
+Yes. It shows the two points are really close in the dimension.
+
+### b
+Perplexity value is the  expected number of nearest neighbors to the point.
+
+### c
+If the steps is small, there might have early stop. Once the number of steps get larger, the outcome will be converge and stable.
+
+### d
+Because to explain topological information generally need multiple perplexities to have a view.
+
+## part 2
+
+```{r}
+#############################################
+# Class: Anly-601
+# Script: Explore tsne embeddings vs 
+#         PCA using MNIST
+# Author: Joshuah Touyz
+# Version: 0.1
+# Last updated: 03/19/20
+#############################################
+
+####################################
+##### Loading libraries & data #####
+####################################
+library(tidyverse)
+library(Rtsne)
+library(RColorBrewer)
+
+# Get MNIST data
+mnist_raw <- read_csv("https://pjreddie.com/media/files/mnist_train.csv", col_names = FALSE)
+
+# What is the dimension of the data set
+dim(mnist_raw) # first column is the value, the rest are the pixels
+
+# Rearranging the data
+pixels_gathered <- mnist_raw %>% head(10000) %>%
+  rename(label = X1) %>%
+  mutate(instance = row_number()) %>%
+  gather(pixel, value, -label, -instance) %>%
+  extract(pixel, "pixel", "(\\d+)", convert = TRUE) %>%
+  mutate(pixel = pixel - 2,
+         x = pixel %% 28,
+         y = 28 - pixel %/% 28)
+
+first_10k_samples =  mnist_raw[1:10000,-1] #%>% as.matrix()
+first_10k_samples_labels =  mnist_raw[1:10000,1] %>% unlist(use.names=F)
+colors = brewer.pal(10, 'Spectral')
+
+
+```
+
+### a
+```{r}
+pca = princomp(first_10k_samples)$scores[,1:2]
+pca_plot = tibble(x = pca[,1], y =pca[,2], labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = pca_plot) + geom_text() + 
+  xlab('PCA component 1') +ylab('PCA component 2')
+```
+
+### b
+```{r}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 5, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+
+```
+
+```{r}
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')
+```
+
+### c
+```{r}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 5, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =5')   )
+   
+```
+  
+```{r, echo=FALSE}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 20, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =20')   )
+```
+    
+```{r,echo=FALSE}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 60, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =60')   )
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 100, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =100')   )
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 125, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+```
+
+```{r}
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =125')   )
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 160, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =160')   )
+```
+
+
+So we can see, the larger the perplexity, the clearer the bound.
+
+### d
+
+```{r}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 1, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =1')   )
+```
+### e
+
+From c and d, we can say there will be a really clear bound.
+
+### f
+```{r}
+itercost = c()
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 5, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[1] = c(itercost,embedding$itercosts[10]) 
+
+
+```
+```{r}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 20, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[2] = c(itercost,embedding$itercosts[10]) 
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 60, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[3] = c(itercost,embedding$itercosts[10]) 
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 100, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[4] = c(itercost,embedding$itercosts[10]) 
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 125, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[5] = c(itercost,embedding$itercosts[10]) 
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 160, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+itercost[6] = c(itercost,embedding$itercosts[10]) 
+```
+
+```{r}
+plot(c(5,20,60,100,125,160),c(2.97,2.43,1.98,1.74,1.6,1.5),type='h',xlab='perplexity',ylab='KL Divergence')
+```
+
+### g
+```{r}
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 160, 
+                  theta = 0.5, 
+                  eta = 10,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =160,eta=10')   )
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 160, 
+                  theta = 0.5, 
+                  eta = 100,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =160, eta=100')   )
+embedding = Rtsne(X = first_10k_samples, dims = 2, 
+                  perplexity = 160, 
+                  theta = 0.5, 
+                  eta = 200,
+                  pca = TRUE, verbose = TRUE, 
+                  max_iter = 500)
+# Visualizing TSNE output
+embedding_plot = tibble(x = embedding$Y[,1], y = embedding$Y[,2], 
+                        labels = as.character(first_10k_samples_labels))
+ggplot(aes(x = x, y=y,label = labels, color = labels), data = embedding_plot) + 
+  geom_text() +xlab('tSNE dimension 1') +ylab('tSNE dimension 2"')+ggtitle(   ('perplexity =160, eta=200')   )
+```
+
+Easily to find, the larger the eta, the smaller the running time. The graphs look no big difference than previous pics.
+
+
